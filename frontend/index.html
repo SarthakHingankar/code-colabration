@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Text Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <div class="left">
+        <button id="newBtn" title="New (Ctrl+N)">New</button>
+        <button id="openBtn" title="Open file">Open</button>
+        <button id="saveBtn" title="Download (Ctrl+S)">Download</button>
+        <button id="clearBtn" title="Clear editor">Clear</button>
+      </div>
+      <div class="right">
+        <span id="status">Ready</span>
+        <span class="counts"><span id="words">0</span> words • <span id="chars">0</span> chars</span>
+      </div>
+    </header>
+
+    <main class="editor-wrap">
+      <textarea id="editor" placeholder="Start typing..." spellcheck="false"></textarea>
+    </main>
+
+    <input id="fileInput" type="file" accept="text/*" style="display:none" />
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
