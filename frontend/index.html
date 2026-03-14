@@ -7,22 +7,64 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app">
+  <!-- Join screen shown initially -->
+  <div class="join-screen" id="joinScreen">
+    <div class="join-box">
+      <h2>Join a Room</h2>
+      <input id="roomInput" placeholder="Enter room id (e.g. 1234)" />
+      <div class="join-actions">
+        <button id="joinBtn">Join</button>
+      </div>
+      <p class="join-status" id="joinStatus">Connect to a room to start collaborating</p>
+    </div>
+  </div>
+
+  <!-- Main app (hidden until joined) -->
+  <div class="app hidden" id="app">
     <header class="toolbar">
       <div class="left">
-        <button id="newBtn" title="New (Ctrl+N)">New</button>
-        <button id="openBtn" title="Open file">Open</button>
-        <button id="saveBtn" title="Download (Ctrl+S)">Download</button>
-        <button id="clearBtn" title="Clear editor">Clear</button>
+        <strong id="roomLabel">Room: <span id="roomIdLabel">-</span></strong>
       </div>
       <div class="right">
+        <span id="userCount">0 users</span>
         <span id="status">Ready</span>
         <span class="counts"><span id="words">0</span> words • <span id="chars">0</span> chars</span>
       </div>
     </header>
 
-    <main class="editor-wrap">
-      <textarea id="editor" placeholder="Start typing..." spellcheck="false"></textarea>
+    <main class="main-grid">
+      <aside class="sidebar">
+        <div class="tabs">
+          <button class="tab active" data-tab="info">Info</button>
+          <button class="tab" data-tab="messages">Messages</button>
+        </div>
+        <div class="tab-content" id="infoTab">
+          <h3>Room Info</h3>
+          <p id="roomInfo">No additional info.</p>
+        </div>
+        <div class="tab-content hidden" id="messagesTab">
+          <h3>Messages</h3>
+          <div id="messagesList" class="messages-list"></div>
+        </div>
+      </aside>
+
+      <section class="editor-area">
+        <div class="editor-toolbar">
+          <div class="left">
+            <button id="newBtn" title="New (Ctrl+N)">New</button>
+            <button id="openBtn" title="Open file">Open</button>
+            <button id="saveBtn" title="Download (Ctrl+S)">Download</button>
+            <button id="clearBtn" title="Clear editor">Clear</button>
+          </div>
+        </div>
+        <textarea id="editor" placeholder="Start typing..." spellcheck="false"></textarea>
+      </section>
+
+      <aside class="compiler">
+        <h3>Compiler</h3>
+        <div id="compilerOutput" class="compiler-output">No output yet.</div>
+        <button id="runBtn">Run</button>
+      </aside>
     </main>
 
     <input id="fileInput" type="file" accept="text/*" style="display:none" />
