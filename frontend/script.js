@@ -2,6 +2,7 @@
 let socket = null;
 // Flag to prevent echoing remote updates back to server
 let isRemoteUpdate = false;
+let executionRunning = false;
 
 function createWebSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -128,10 +129,13 @@ function createWebSocket() {
     });
 
     runBtn && runBtn.addEventListener('click', () => {
-        socket.send(JSON.stringify({
-            type: 'RUN_CODE',
-            roomId: currentRoomId
-        }));
+        if (executionRunning) return;
+        if (socket && socket.readyState === WebSocket.OPEN && currentRoomId) {
+            socket.send(JSON.stringify({
+                type: 'RUN_CODE',
+                roomId: currentRoomId
+            }));
+        }
     });
 
     // keyboard shortcuts
@@ -189,8 +193,52 @@ function createWebSocket() {
             joinStatus.textContent = 'Socket error';
         };
 
-        // keep a reference to the current execution output element so we can stream into it
+        // per-run output state
         let execPreElement = null;
+
+        // Output backpressure/cap to prevent infinite output from freezing the tab.
+        // Keep only the last MAX_OUTPUT_CHARS characters and throttle DOM writes.
+        const MAX_OUTPUT_CHARS = 50_000;
+        const FLUSH_INTERVAL_MS = 75;
+
+        let pendingOutput = '';
+        let outputBuffer = '';
+        let flushTimer = null;
+        let flushScheduled = false;
+
+        function scheduleFlush() {
+            if (flushScheduled) return;
+            flushScheduled = true;
+            flushTimer = setTimeout(() => {
+                flushScheduled = false;
+                flushOutputToDom();
+            }, FLUSH_INTERVAL_MS);
+        }
+
+        function trimBuffer(buf) {
+            if (buf.length <= MAX_OUTPUT_CHARS) return buf;
+            // Keep tail
+            const trimmed = buf.slice(buf.length - MAX_OUTPUT_CHARS);
+            return trimmed;
+        }
+
+        function flushOutputToDom() {
+            if (!pendingOutput) return;
+            outputBuffer = trimBuffer(outputBuffer + pendingOutput);
+            pendingOutput = '';
+
+            const outEl = document.getElementById('compilerOutput');
+            if (!outEl) return;
+
+            if (!execPreElement) {
+                execPreElement = document.createElement('pre');
+                execPreElement.className = 'compiler-output-line';
+                outEl.appendChild(execPreElement);
+            }
+
+            execPreElement.textContent = outputBuffer;
+            outEl.scrollTop = outEl.scrollHeight;
+        }
 
         socket.onmessage = (event) => {
             try {
@@ -244,46 +292,72 @@ function createWebSocket() {
                     else addMessage(data.text || JSON.stringify(data));
                 }
                 if (data.type === 'EXECUTION_STARTED') {
+                    executionRunning = true;
+                    if (runBtn) runBtn.disabled = true;
+                    console.log('Execution started');
                     addMessage('Execution started');
+
+                    // start a fresh output session
+                    const outEl = document.getElementById('compilerOutput');
+                    if (outEl) outEl.textContent = '';
+                    execPreElement = null;
+
+                    // reset output buffers/timers for this run
+                    pendingOutput = '';
+                    outputBuffer = '';
+                    if (flushTimer) {
+                        clearTimeout(flushTimer);
+                        flushTimer = null;
+                    }
+                    flushScheduled = false;
                 }
 
                 if (data.type === 'EXECUTION_OUTPUT') {
-                    const outEl = document.getElementById('compilerOutput');
                     // accept multiple possible payload fields for streaming text
                     const text = (data.line ?? data.output ?? data.text ?? data.chunk) || '';
 
-                    if (outEl) {
-                        // ensure we have a single pre element to append text to
-                        if (!execPreElement) {
-                            execPreElement = document.createElement('pre');
-                            execPreElement.className = 'compiler-output-line';
-                            outEl.appendChild(execPreElement);
-                        }
+                    // Backpressured streaming: buffer then flush at a throttled cadence.
+                    // Also cap growth so infinite output can't crash the page.
+                    const chunk = text + (text.endsWith('\n') ? '' : '\n');
+                    pendingOutput += chunk;
 
-                        // if server indicates stream type, wrap chunk in a span so we can style stderr parts
-                        if (data.stream === 'stderr') {
-                            const span = document.createElement('span');
-                            span.className = 'stderr';
-                            span.textContent = text + '\n';
-                            execPreElement.appendChild(span);
-                        } else {
-                            execPreElement.appendChild(document.createTextNode(text + '\n'));
-                        }
-
-                        // keep latest output in view
-                        outEl.scrollTop = outEl.scrollHeight;
-                    } else {
-                        // fallback to messages panel if no compilerOutput exists
+                    // Small optimization: if output panel doesn't exist, don't buffer forever.
+                    const outEl = document.getElementById('compilerOutput');
+                    if (!outEl) {
                         addMessage(text);
+                        pendingOutput = '';
+                        return;
+                    }
+
+                    // If stderr is present, mark the whole run as having stderr output.
+                    if (data.stream === 'stderr' && execPreElement) execPreElement.classList.add('stderr');
+
+                    // If pending output is already huge, flush immediately to keep memory stable.
+                    if (pendingOutput.length > 16_000) {
+                        flushOutputToDom();
+                    } else {
+                        scheduleFlush();
                     }
                 }
 
                 if (data.type === 'EXECUTION_FINISHED') {
+                    executionRunning = false;
+                    if (runBtn) runBtn.disabled = false;
+                    flushOutputToDom();
                     addMessage('Code executed successfully');
                 }
 
                 if (data.type === 'EXECUTION_ERROR') {
+                    executionRunning = false;
+                    if (runBtn) runBtn.disabled = false;
+                    flushOutputToDom();
                     addMessage(`Execution error: ${data.message}`);
+                }
+                if (data.type === 'EXECUTION_ALREADY_RUNNING') {
+                    // Keep UI in running state; just inform the user.
+                    executionRunning = true;
+                    if (runBtn) runBtn.disabled = true;
+                    addMessage('Execution already in progress', 'system');
                 }
 
             } catch (e) {

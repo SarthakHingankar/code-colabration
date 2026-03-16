@@ -192,7 +192,7 @@ body {
     background: rgba(255, 255, 255, 0.01);
     padding: 12px;
     border-radius: 8px;
-    overflow: auto;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 8px
@@ -273,7 +273,29 @@ body {
     padding: 8px;
     border-radius: 6px;
     color: var(--muted);
-    font-family: ui-monospace, Menlo, monospace
+    font-family: ui-monospace, Menlo, monospace;
+    overflow: auto;
+    min-height: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Keep the Run button visible even when output is long */
+#runBtn {
+    position: sticky;
+    bottom: 0;
+    align-self: stretch;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(2, 6, 23, 0.6);
+    color: #e6eef6;
+    cursor: pointer;
+}
+
+#runBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 @media (max-width:900px) {

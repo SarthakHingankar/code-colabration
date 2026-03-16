@@ -2,3 +2,5 @@
 /backend/package-lock.json
 /backend/.env
 /backend/tmp/
+/backend/worker/node_modules/
+/backend/worker/package-lock.json
