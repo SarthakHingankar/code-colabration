@@ -32,7 +32,7 @@ async function runJob(job) {
     // Notify start
     await publishLog(roomId, { type: 'EXECUTION_STARTED' });
 
-    const proc = spawn('python', ['-u', filePath]);
+    const proc = spawn('python3', ['-u', filePath]);
 
     let done = false;
     let timer = null;

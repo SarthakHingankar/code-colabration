@@ -6,7 +6,7 @@ const fs = require('fs');
 const socketLayer = require('./socket');
 const queue = require('./queue');
 
-const frontendPath = path.join(__dirname, '..', '..', '..', 'frontend');
+const frontendPath = path.join(__dirname, '..', 'public');
 
 const app = express();
 app.use(express.json());

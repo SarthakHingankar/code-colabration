@@ -1,4 +1,4 @@
-const { MSG } = require('../../shared/constants');
+const { MSG } = require('./constants');
 
 function broadcast(roomSet, payload) {
     if (!roomSet) return;
