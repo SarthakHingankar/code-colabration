@@ -3,47 +3,78 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Simple Text Editor</title>
+  <title>Code Collaboration Sandbox</title>
+  <meta name="description" content="Real-time collaborative editor + sandboxed execution." />
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <!-- Join screen shown initially -->
   <div class="join-screen" id="joinScreen">
-    <div class="join-box">
-      <h2>Start collaborating</h2>
-
-      <div class="join-section">
-        <h3>Create a new room</h3>
-        <input id="projectNameInput" placeholder="Project name (optional)" />
-        <div class="join-actions">
-          <button id="createProjectBtn">Create</button>
-        </div>
-
-        <div class="created-project hidden" id="createdProject">
-          <div class="created-row">
-            <span class="created-label">Room ID:</span>
-            <code id="createdProjectId">-</code>
+    <div class="join-shell">
+      <header class="join-hero">
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div class="brand-text">
+            <h1>Code Collaboration</h1>
+            <p class="subtitle">Realtime editing, multi-gateway sync, and sandboxed execution.</p>
           </div>
+        </div>
+        <ul class="pill-list" aria-label="feature highlights">
+          <li>WebSocket rooms</li>
+          <li>Redis-backed sync</li>
+          <li>Postgres history</li>
+          <li>Docker sandbox</li>
+        </ul>
+      </header>
+
+      <section class="join-grid" aria-label="join options">
+        <div class="join-card">
+          <div class="card-head">
+            <h2>Create a new room</h2>
+            <p>Generate a room ID and share it with others.</p>
+          </div>
+
+          <label class="field">
+            <span class="field-label">Project name</span>
+            <input id="projectNameInput" placeholder="Untitled Project" />
+          </label>
+
           <div class="join-actions">
-            <button id="copyProjectIdBtn" type="button">Copy ID</button>
-            <button id="joinCreatedBtn" type="button">Join now</button>
+            <button id="createProjectBtn" class="btn primary">Create room</button>
+          </div>
+
+          <div class="created-project hidden" id="createdProject">
+            <div class="created-row">
+              <span class="created-label">Room ID</span>
+              <code id="createdProjectId">-</code>
+            </div>
+            <div class="join-actions">
+              <button id="copyProjectIdBtn" type="button" class="btn">Copy ID</button>
+              <button id="joinCreatedBtn" type="button" class="btn primary">Join now</button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="join-divider">
-        <span>or</span>
-      </div>
+        <div class="join-card">
+          <div class="card-head">
+            <h2>Join an existing room</h2>
+            <p>Paste a room ID to connect and start collaborating.</p>
+          </div>
 
-      <div class="join-section">
-        <h3>Join an existing room</h3>
-        <input id="roomInput" placeholder="Enter room id (UUID)" />
-        <div class="join-actions">
-          <button id="joinBtn">Join</button>
+          <label class="field">
+            <span class="field-label">Room ID</span>
+            <input id="roomInput" placeholder="Enter room id (UUID)" />
+          </label>
+
+          <div class="join-actions">
+            <button id="joinBtn" class="btn primary">Join room</button>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <p class="join-status" id="joinStatus">Create a room or paste an existing room ID to start collaborating</p>
+      <footer class="join-footer">
+        <p class="join-status" id="joinStatus">Create a room or paste an existing room ID to start collaborating</p>
+      </footer>
     </div>
   </div>
 
@@ -51,7 +82,10 @@
   <div class="app hidden" id="app">
     <header class="toolbar">
       <div class="left">
-        <strong id="roomLabel">Room: <span id="roomIdLabel">-</span></strong>
+        <div class="roomline">
+          <strong id="roomLabel">Room: <span id="roomIdLabel">-</span></strong>
+          <span class="badge" id="connBadge">Connecting</span>
+        </div>
       </div>
       <div class="right">
         <span id="userCount">0 users</span>
@@ -79,19 +113,22 @@
       <section class="editor-area">
         <div class="editor-toolbar">
           <div class="left">
-            <button id="newBtn" title="New (Ctrl+N)">New</button>
-            <button id="openBtn" title="Open file">Open</button>
-            <button id="saveBtn" title="Download (Ctrl+S)">Download</button>
-            <button id="clearBtn" title="Clear editor">Clear</button>
+            <button id="newBtn" class="btn" title="New (Ctrl+N)">New</button>
+            <button id="openBtn" class="btn" title="Open file">Open</button>
+            <button id="saveBtn" class="btn" title="Download (Ctrl+S)">Download</button>
+            <button id="clearBtn" class="btn" title="Clear editor">Clear</button>
           </div>
         </div>
         <textarea id="editor" placeholder="Start typing..." spellcheck="false"></textarea>
       </section>
 
       <aside class="compiler">
-        <h3>Compiler</h3>
+        <div class="compiler-head">
+          <h3>Execution</h3>
+          <div class="compiler-meta">Sandboxed Docker run • no-network • read-only</div>
+        </div>
         <div id="compilerOutput" class="compiler-output">No output yet.</div>
-        <button id="runBtn">Run</button>
+        <button id="runBtn" class="btn primary">Run</button>
       </aside>
     </main>
 

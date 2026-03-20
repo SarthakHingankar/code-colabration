@@ -35,6 +35,7 @@ function createWebSocket() {
     const clearBtn = document.getElementById('clearBtn');
     const openBtn = document.getElementById('openBtn');
     const status = document.getElementById('status');
+    const connBadge = document.getElementById('connBadge');
     const words = document.getElementById('words');
     const chars = document.getElementById('chars');
     const fileInput = document.getElementById('fileInput');
@@ -44,6 +45,20 @@ function createWebSocket() {
     function setStatus(t) {
         status.textContent = t;
         setTimeout(() => { if (status.textContent === t) status.textContent = 'Ready' }, 1800);
+    }
+
+    function setConnBadge(state) {
+        if (!connBadge) return;
+        connBadge.classList.remove('ok', 'bad');
+        if (state === 'ok') {
+            connBadge.textContent = 'Connected';
+            connBadge.classList.add('ok');
+        } else if (state === 'bad') {
+            connBadge.textContent = 'Disconnected';
+            connBadge.classList.add('bad');
+        } else {
+            connBadge.textContent = 'Connecting';
+        }
     }
 
     function updateCounts() {
@@ -182,6 +197,7 @@ function createWebSocket() {
         }
 
         joinStatus.textContent = 'Connecting...';
+        setConnBadge('');
 
         // Set early so INITIAL_CODE path can still label the room.
         currentRoomId = roomId;
@@ -190,17 +206,20 @@ function createWebSocket() {
 
         socket.onopen = () => {
             console.log('Connected to server');
+            setConnBadge('ok');
             // Send join message
             socket.send(JSON.stringify({ type: 'JOIN_ROOM', roomId }));
         };
 
         socket.onclose = () => {
             console.log('Disconnected from server');
+            setConnBadge('bad');
             addMessage('Disconnected from server', 'system');
         };
 
         socket.onerror = (err) => {
             console.error('Socket error', err);
+            setConnBadge('bad');
             joinStatus.textContent = 'Socket error';
         };
 
@@ -334,6 +353,7 @@ function createWebSocket() {
                     if (runBtn) runBtn.disabled = true;
                     console.log('Execution started');
                     addMessage('Execution started');
+                    setStatus('Running…');
 
                     // start a fresh output session
                     const outEl = document.getElementById('compilerOutput');
@@ -383,6 +403,7 @@ function createWebSocket() {
                     if (runBtn) runBtn.disabled = false;
                     flushOutputToDom();
                     addMessage('Code executed successfully');
+                    setStatus('Finished');
                 }
 
                 if (data.type === 'EXECUTION_ERROR') {
@@ -390,6 +411,7 @@ function createWebSocket() {
                     if (runBtn) runBtn.disabled = false;
                     flushOutputToDom();
                     addMessage(`Execution error: ${data.message}`);
+                    setStatus('Error');
                 }
                 if (data.type === 'EXECUTION_ALREADY_RUNNING') {
                     // Keep UI in running state; just inform the user.
@@ -416,6 +438,7 @@ function createWebSocket() {
         createProjectBtn.disabled = true;
         joinBtn.disabled = true;
         joinStatus.textContent = 'Creating room...';
+        if (createProjectBtn) createProjectBtn.textContent = 'Creating…';
 
         try {
             const resp = await fetch('/projects', {
@@ -443,6 +466,7 @@ function createWebSocket() {
         } finally {
             createProjectBtn.disabled = false;
             joinBtn.disabled = false;
+            if (createProjectBtn) createProjectBtn.textContent = 'Create room';
         }
     });
 
@@ -457,6 +481,8 @@ function createWebSocket() {
         try {
             await navigator.clipboard.writeText(id);
             joinStatus.textContent = 'Copied room ID to clipboard';
+            copyProjectIdBtn.textContent = 'Copied!';
+            setTimeout(() => { copyProjectIdBtn.textContent = 'Copy ID'; }, 900);
         } catch {
             roomInput.focus();
             roomInput.select();

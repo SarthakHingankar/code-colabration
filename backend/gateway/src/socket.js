@@ -1,5 +1,6 @@
 const rooms = require('./rooms');
 const execution = require('./execution');
+const { pub } = require('./realtime/collabBus');
 
 function setupWebSocket(wss) {
     wss.on('connection', (socket) => {
@@ -21,10 +22,25 @@ function setupWebSocket(wss) {
 
             if (data.type === 'JOIN_ROOM') {
                 await rooms.joinRoom(socket, data.roomId);
+                // broadcast presence to other gateways (best effort)
+                rooms.publishPresence(data.roomId, +1);
             }
 
             if (data.type === 'CODE_UPDATE') {
-                rooms.updateCode(socket, data.roomId, data.code);
+                const projectId = data.roomId;
+                rooms.updateCode(socket, projectId, data.code);
+
+                // Cross-gateway sync: publish to Redis so other gateways can broadcast locally.
+                // Best-effort: local updates must still work if Redis is down.
+                if (pub) {
+                    pub.publish(rooms.getCollabChannel(projectId), JSON.stringify({
+                        type: 'CODE_UPDATE',
+                        projectId,
+                        code: data.code,
+                        ts: Date.now(),
+                        origin: rooms.getInstanceId()
+                    })).catch(() => { });
+                }
             }
 
             if (data.type === 'RUN_CODE') {
