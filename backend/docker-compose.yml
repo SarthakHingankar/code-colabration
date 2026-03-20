@@ -8,13 +8,15 @@ services:
 
   postgres:
     image: postgres:15
-    restart: always
+    container_name: postgres-db
     environment:
       POSTGRES_USER: dev
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: sandbox
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   worker:
     build: ./worker
@@ -30,7 +32,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - PORT=3000
+      DATABASE_URL: postgresql://dev:dev@postgres:5432/sandbox
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
     depends_on:
       - redis
+      - postgres
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run start"
+
+volumes:
+  postgres_data:

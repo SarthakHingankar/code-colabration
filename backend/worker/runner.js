@@ -24,13 +24,14 @@ function jobToFilePath(roomId) {
 async function runJob(job) {
     const roomId = job?.roomId;
     if (!roomId) throw new Error('Job missing roomId');
+    const executionId = job?.executionId;
 
     ensureTmpDir();
     const filePath = jobToFilePath(roomId);
     fs.writeFileSync(filePath, job.code || '', 'utf8');
 
     // Notify start
-    await publishLog(roomId, { type: 'EXECUTION_STARTED' });
+    await publishLog(roomId, { type: 'EXECUTION_STARTED', executionId });
 
     const proc = spawn('python3', ['-u', filePath]);
 
@@ -47,20 +48,20 @@ async function runJob(job) {
         }
 
         if (kind === 'finished') {
-            await publishLog(roomId, { type: 'EXECUTION_FINISHED', ...payload });
+            await publishLog(roomId, { type: 'EXECUTION_FINISHED', executionId, ...payload });
             return;
         }
 
-        await publishLog(roomId, { type: 'EXECUTION_ERROR', message: payload?.message || String(payload) });
+        await publishLog(roomId, { type: 'EXECUTION_ERROR', executionId, message: payload?.message || String(payload) });
     }
 
     proc.stdout.on('data', (data) => {
         // Fire-and-forget; we don't await inside stream handlers.
-        publishLog(roomId, { type: 'EXECUTION_OUTPUT', stream: 'stdout', line: data.toString() }).catch(() => { });
+        publishLog(roomId, { type: 'EXECUTION_OUTPUT', executionId, stream: 'stdout', line: data.toString() }).catch(() => { });
     });
 
     proc.stderr.on('data', (data) => {
-        publishLog(roomId, { type: 'EXECUTION_OUTPUT', stream: 'stderr', line: data.toString() }).catch(() => { });
+        publishLog(roomId, { type: 'EXECUTION_OUTPUT', executionId, stream: 'stderr', line: data.toString() }).catch(() => { });
     });
 
     proc.on('error', (err) => {

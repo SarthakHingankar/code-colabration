@@ -16,6 +16,14 @@ function createWebSocket() {
     const roomInput = document.getElementById('roomInput');
     const joinStatus = document.getElementById('joinStatus');
 
+    // Create room (project) controls
+    const projectNameInput = document.getElementById('projectNameInput');
+    const createProjectBtn = document.getElementById('createProjectBtn');
+    const createdProject = document.getElementById('createdProject');
+    const createdProjectId = document.getElementById('createdProjectId');
+    const copyProjectIdBtn = document.getElementById('copyProjectIdBtn');
+    const joinCreatedBtn = document.getElementById('joinCreatedBtn');
+
     const app = document.getElementById('app');
     const roomIdLabel = document.getElementById('roomIdLabel');
     const userCount = document.getElementById('userCount');
@@ -166,15 +174,18 @@ function createWebSocket() {
         });
     });
 
-    // Join flow
-    joinBtn.addEventListener('click', () => {
-        const roomId = (roomInput.value || '').trim();
+    function joinRoomById(roomId) {
+        roomId = (roomId || '').trim();
         if (!roomId) {
             joinStatus.textContent = 'Please enter a room id';
             return;
         }
 
         joinStatus.textContent = 'Connecting...';
+
+        // Set early so INITIAL_CODE path can still label the room.
+        currentRoomId = roomId;
+
         socket = createWebSocket();
 
         socket.onopen = () => {
@@ -264,6 +275,33 @@ function createWebSocket() {
                         isRemoteUpdate = false;
                         addMessage('Loaded room code', 'system');
                     }
+                }
+
+                // New DB-backed join flow: server sends INITIAL_CODE after JOIN_ROOM.
+                // Keep the same UI transitions as ROOM_JOINED for compatibility.
+                if (data.type === 'INITIAL_CODE') {
+                    currentRoomId = currentRoomId || roomId;
+                    roomIdLabel.textContent = currentRoomId;
+                    // switch UI
+                    joinScreen.classList.add('hidden');
+                    app.classList.remove('hidden');
+                    joinStatus.textContent = 'Joined';
+                    addMessage(`Joined room ${currentRoomId}`, 'system');
+
+                    if (typeof data.code === 'string') {
+                        isRemoteUpdate = true;
+                        editor.value = data.code;
+                        updateCounts();
+                        isRemoteUpdate = false;
+                        addMessage('Loaded project code', 'system');
+                    }
+                }
+
+                if (data.type === 'ERROR') {
+                    const msg = data.message || 'Unknown error';
+                    joinStatus.textContent = msg;
+                    addMessage(`Error: ${msg}`, 'system');
+                    console.error('Server ERROR:', data);
                 }
 
                 if (data.type === 'USER_JOINED') {
@@ -364,6 +402,66 @@ function createWebSocket() {
                 console.error('Failed to parse socket message', e);
             }
         };
+    }
+
+    // Join flow
+    joinBtn.addEventListener('click', () => {
+        joinRoomById(roomInput.value);
+    });
+
+    // Create room flow
+    createProjectBtn && createProjectBtn.addEventListener('click', async () => {
+        if (createProjectBtn.disabled) return;
+
+        createProjectBtn.disabled = true;
+        joinBtn.disabled = true;
+        joinStatus.textContent = 'Creating room...';
+
+        try {
+            const resp = await fetch('/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: (projectNameInput?.value || '').trim() || 'Untitled Project' })
+            });
+
+            if (!resp.ok) {
+                const txt = await resp.text().catch(() => '');
+                throw new Error(txt || `Request failed (${resp.status})`);
+            }
+
+            const data = await resp.json();
+            const id = data && data.projectId;
+            if (!id) throw new Error('Server did not return projectId');
+
+            if (createdProjectId) createdProjectId.textContent = id;
+            if (createdProject) createdProject.classList.remove('hidden');
+            roomInput.value = id;
+            joinStatus.textContent = 'Room created.';
+        } catch (e) {
+            console.error(e);
+            joinStatus.textContent = e?.message || 'Failed to create room';
+        } finally {
+            createProjectBtn.disabled = false;
+            joinBtn.disabled = false;
+        }
+    });
+
+    joinCreatedBtn && joinCreatedBtn.addEventListener('click', () => {
+        const id = (createdProjectId && createdProjectId.textContent) || '';
+        joinRoomById(id);
+    });
+
+    copyProjectIdBtn && copyProjectIdBtn.addEventListener('click', async () => {
+        const id = (createdProjectId && createdProjectId.textContent) || '';
+        if (!id || id === '-') return;
+        try {
+            await navigator.clipboard.writeText(id);
+            joinStatus.textContent = 'Copied room ID to clipboard';
+        } catch {
+            roomInput.focus();
+            roomInput.select();
+            joinStatus.textContent = 'Select room ID and copy (Ctrl+C)';
+        }
     });
 
     // initialize counts

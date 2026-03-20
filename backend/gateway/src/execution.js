@@ -1,6 +1,7 @@
 const queue = require('./queue');
 const { broadcast } = require('./utils');
 const roomsModule = require('./rooms');
+const prisma = require('./prisma');
 const { v4: uuid } = require('uuid');
 
 // Inject state updater into queue to avoid circular dependency (queue -> execution).
@@ -71,9 +72,29 @@ async function startExecution(roomId) {
 
     const latestCode = roomsModule.getCode(roomId) || '';
 
+    // Create an Execution row for tracking / history.
+    // executionId becomes the global identifier for this run.
+    let executionRow;
+    try {
+        executionRow = await prisma.execution.create({
+            data: {
+                projectId: roomId,
+                status: 'QUEUED',
+                output: ''
+            }
+        });
+    } catch (err) {
+        broadcast(room, { type: 'EXECUTION_ERROR', message: err?.message || String(err) });
+        return;
+    }
+
+    const executionId = executionRow.id;
+
     const job = {
         jobId: uuid(),
         roomId,
+        projectId: roomId,
+        executionId,
         code: latestCode,
         createdAt: Date.now()
     };
@@ -82,13 +103,22 @@ async function startExecution(roomId) {
     const execState = { state: STATES.QUEUED, jobId: job.jobId };
     setExecutionState(roomId, execState);
 
-    broadcast(room, { type: 'EXECUTION_QUEUED', jobId: job.jobId });
+    broadcast(room, { type: 'EXECUTION_QUEUED', jobId: job.jobId, executionId });
 
     try {
         await queue.pushJob(job);
     } catch (err) {
         // If enqueue fails, clear state so the user can retry.
         setExecutionState(roomId, { state: STATES.IDLE });
+        // Best-effort persist failure.
+        try {
+            await prisma.execution.update({
+                where: { id: executionId },
+                data: { status: 'FAILED', output: err?.message || String(err) }
+            });
+        } catch (e) {
+            // ignore
+        }
         broadcast(room, { type: 'EXECUTION_ERROR', message: err?.message || String(err) });
     }
 

@@ -11,7 +11,7 @@ function setupWebSocket(wss) {
             console.log('WebSocket disconnected');
         });
 
-        socket.on('message', (message) => {
+        socket.on('message', async (message) => {
             let data;
             try {
                 data = JSON.parse(message.toString());
@@ -20,7 +20,7 @@ function setupWebSocket(wss) {
             }
 
             if (data.type === 'JOIN_ROOM') {
-                rooms.joinRoom(socket, data.roomId);
+                await rooms.joinRoom(socket, data.roomId);
             }
 
             if (data.type === 'CODE_UPDATE') {

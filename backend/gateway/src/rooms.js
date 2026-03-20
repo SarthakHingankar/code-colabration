@@ -1,75 +1,115 @@
-const { broadcast } = require('./utils');
+const prisma = require('./prisma');
 
-// rooms and roomCode are the canonical in-memory state
-const rooms = new Map();
-const roomCode = new Map();
+// Runtime cache per projectId:
+// {
+//    code: string,
+//    users: Set<WebSocket>,
+//    saveTimer: NodeJS.Timeout | null
+// }
+const projectRuntime = new Map();
 
-function getRoom(roomId) {
-    return rooms.get(roomId);
+function getRoom(projectId) {
+    return projectRuntime.get(projectId)?.users;
 }
 
-function getCode(roomId) {
-    return roomCode.get(roomId) || '';
+function getCode(projectId) {
+    return projectRuntime.get(projectId)?.code || '';
 }
 
-function joinRoom(socket, roomId) {
-    if (!rooms.has(roomId)) rooms.set(roomId, new Set());
-    const room = rooms.get(roomId);
-    room.add(socket);
-    socket.roomId = roomId;
+async function joinRoom(ws, projectId) {
+    if (!projectId) return;
 
-    const users = room.size;
-    if (!roomCode.has(roomId)) roomCode.set(roomId, '');
-    const latestCode = roomCode.get(roomId);
+    let runtime = projectRuntime.get(projectId);
 
-    // send ROOM_JOINED to joining socket with latest code
-    socket.send(JSON.stringify({
+    // First user: load from DB
+    if (!runtime) {
+        const project = await prisma.project.findUnique({
+            where: { id: projectId }
+        });
+
+        if (!project) {
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Project not found' }));
+            return;
+        }
+
+        runtime = {
+            code: project.code || '',
+            users: new Set(),
+            saveTimer: null
+        };
+
+        projectRuntime.set(projectId, runtime);
+    }
+
+    runtime.users.add(ws);
+    ws.roomId = projectId;
+
+    // Compatibility/UI ack: lets client switch screens and show user count.
+    ws.send(JSON.stringify({
         type: 'ROOM_JOINED',
-        roomId,
-        users,
-        code: latestCode
+        roomId: projectId,
+        users: runtime.users.size,
+        code: runtime.code
     }));
 
-    // notify others
-    room.forEach(client => {
-        if (client !== socket) {
-            client.send(JSON.stringify({ type: 'USER_JOINED', users }));
-        }
+    // Let client hydrate editor
+    ws.send(JSON.stringify({
+        type: 'INITIAL_CODE',
+        code: runtime.code
+    }));
+
+    // Notify others in memory
+    const users = runtime.users.size;
+    runtime.users.forEach((client) => {
+        if (client !== ws) client.send(JSON.stringify({ type: 'USER_JOINED', users }));
     });
 
-    return { room, latestCode };
+    return runtime;
 }
 
-function leaveRoom(socket) {
-    const roomId = socket.roomId;
-    if (!roomId) return;
-    const room = rooms.get(roomId);
-    if (!room) return;
+function leaveRoom(ws) {
+    const projectId = ws.roomId;
+    if (!projectId) return;
+    const runtime = projectRuntime.get(projectId);
+    if (!runtime) return;
 
-    room.delete(socket);
-    const users = room.size;
+    runtime.users.delete(ws);
+    const users = runtime.users.size;
 
-    // notify remaining clients
-    room.forEach(client => {
+    runtime.users.forEach((client) => {
         client.send(JSON.stringify({ type: 'USER_LEFT', users }));
     });
 
     if (users === 0) {
-        rooms.delete(roomId);
-        roomCode.delete(roomId);
+        if (runtime.saveTimer) clearTimeout(runtime.saveTimer);
+        projectRuntime.delete(projectId);
     }
 }
 
-function updateCode(sourceSocket, roomId, code) {
-    const room = rooms.get(roomId);
-    if (!room) return;
-    roomCode.set(roomId, code);
-    // broadcast to others
-    room.forEach(client => {
-        if (client !== sourceSocket) {
-            client.send(JSON.stringify({ type: 'CODE_UPDATE', code }));
+function updateCode(sourceWs, projectId, newCode) {
+    const runtime = projectRuntime.get(projectId);
+    if (!runtime) return;
+    runtime.code = newCode;
+
+    // broadcast to others (realtime stays memory-driven)
+    runtime.users.forEach((client) => {
+        if (client !== sourceWs) {
+            client.send(JSON.stringify({ type: 'CODE_UPDATE', code: newCode }));
         }
     });
+
+    // debounce DB write
+    if (runtime.saveTimer) clearTimeout(runtime.saveTimer);
+    runtime.saveTimer = setTimeout(async () => {
+        try {
+            await prisma.project.update({
+                where: { id: projectId },
+                data: { code: runtime.code }
+            });
+        } catch (e) {
+            // don't crash on DB hiccups
+        }
+    }, 1500);
 }
 
 module.exports = {
@@ -78,4 +118,5 @@ module.exports = {
     updateCode,
     getRoom,
     getCode,
+    projectRuntime
 };

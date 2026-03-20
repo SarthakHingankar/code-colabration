@@ -2,6 +2,7 @@ const Redis = require('ioredis');
 
 const rooms = require('./rooms');
 const { broadcast, logger } = require('./utils');
+const prisma = require('./prisma');
 
 // execution state updater is injected at runtime to avoid circular deps
 let executionStateUpdater = null;
@@ -19,6 +20,59 @@ let redisPush = null;
 let redisSub = null;
 let redisReady = false;
 let subscribed = false;
+
+// executionId -> accumulated output
+const executionBuffers = new Map();
+
+function appendExecutionOutput(executionId, text) {
+    if (!executionId || !text) return;
+    const prev = executionBuffers.get(executionId) || '';
+    executionBuffers.set(executionId, prev + text);
+}
+
+async function persistExecutionEvent(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    const { type, executionId } = payload;
+    if (!executionId) return;
+
+    try {
+        if (type === 'EXECUTION_STARTED') {
+            executionBuffers.set(executionId, '');
+            await prisma.execution.update({
+                where: { id: executionId },
+                data: { status: 'RUNNING' }
+            });
+            return;
+        }
+
+        if (type === 'EXECUTION_OUTPUT') {
+            appendExecutionOutput(executionId, payload.line || payload.output || '');
+            return;
+        }
+
+        if (type === 'EXECUTION_FINISHED') {
+            const output = executionBuffers.get(executionId) || '';
+            await prisma.execution.update({
+                where: { id: executionId },
+                data: { status: 'FINISHED', output }
+            });
+            executionBuffers.delete(executionId);
+            return;
+        }
+
+        if (type === 'EXECUTION_ERROR') {
+            const errorMessage = payload.message || 'Execution failed';
+            await prisma.execution.update({
+                where: { id: executionId },
+                data: { status: 'FAILED', output: errorMessage }
+            });
+            executionBuffers.delete(executionId);
+            return;
+        }
+    } catch (e) {
+        // DB errors shouldn't break realtime plumbing
+    }
+}
 
 function getRedisUrl() {
     return process.env.REDIS_URL || process.env.REDIS_CONNECTION_STRING || "redis://localhost:6379";
@@ -105,6 +159,9 @@ function forwardRedisLogsToRooms() {
     subscribeToExecutionLogs(({ roomId, payload }) => {
         if (!roomId) return;
 
+        // Persist execution lifecycle + output (best effort).
+        persistExecutionEvent(payload).catch(() => { });
+
         // Drive gateway execution state machine off worker events.
         try {
             executionStateUpdater && executionStateUpdater(roomId, payload);
@@ -127,6 +184,7 @@ module.exports = {
     subscribeToExecutionLogs,
     forwardRedisLogsToRooms,
     setExecutionStateUpdater,
+    executionBuffers,
     EXECUTION_JOBS_LIST,
     LOG_CHANNEL_PREFIX
 };

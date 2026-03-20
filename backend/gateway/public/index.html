@@ -10,12 +10,40 @@
   <!-- Join screen shown initially -->
   <div class="join-screen" id="joinScreen">
     <div class="join-box">
-      <h2>Join a Room</h2>
-      <input id="roomInput" placeholder="Enter room id (e.g. 1234)" />
-      <div class="join-actions">
-        <button id="joinBtn">Join</button>
+      <h2>Start collaborating</h2>
+
+      <div class="join-section">
+        <h3>Create a new room</h3>
+        <input id="projectNameInput" placeholder="Project name (optional)" />
+        <div class="join-actions">
+          <button id="createProjectBtn">Create</button>
+        </div>
+
+        <div class="created-project hidden" id="createdProject">
+          <div class="created-row">
+            <span class="created-label">Room ID:</span>
+            <code id="createdProjectId">-</code>
+          </div>
+          <div class="join-actions">
+            <button id="copyProjectIdBtn" type="button">Copy ID</button>
+            <button id="joinCreatedBtn" type="button">Join now</button>
+          </div>
+        </div>
       </div>
-      <p class="join-status" id="joinStatus">Connect to a room to start collaborating</p>
+
+      <div class="join-divider">
+        <span>or</span>
+      </div>
+
+      <div class="join-section">
+        <h3>Join an existing room</h3>
+        <input id="roomInput" placeholder="Enter room id (UUID)" />
+        <div class="join-actions">
+          <button id="joinBtn">Join</button>
+        </div>
+      </div>
+
+      <p class="join-status" id="joinStatus">Create a room or paste an existing room ID to start collaborating</p>
     </div>
   </div>
 
