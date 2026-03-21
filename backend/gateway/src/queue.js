@@ -4,15 +4,14 @@ const rooms = require('./rooms');
 const { broadcast, logger } = require('./utils');
 const prisma = require('./prisma');
 
-// execution state updater is injected at runtime to avoid circular deps
+// Injected at runtime to avoid circular deps.
 let executionStateUpdater = null;
 
 function setExecutionStateUpdater(fn) {
     executionStateUpdater = typeof fn === 'function' ? fn : null;
 }
 
-// ---- Redis producer/subscriber (optional) ----
-
+// Redis producer/subscriber.
 const EXECUTION_JOBS_LIST = process.env.EXECUTION_JOBS_LIST || 'execution_jobs';
 const LOG_CHANNEL_PREFIX = process.env.EXECUTION_LOGS_PREFIX || 'execution_logs_';
 
@@ -110,11 +109,7 @@ async function ensureRedisConnected() {
     }
 }
 
-/**
- * subscribeToExecutionLogs(onMessage)
- * Subscribes once to all execution log channels (execution_logs_*).
- * Calls onMessage({ roomId, payload, channel }) for each received message.
- */
+// Subscribe once to execution_logs_* and dispatch messages to onMessage().
 function subscribeToExecutionLogs(onMessage) {
     if (subscribed) return;
     subscribed = true;
@@ -127,7 +122,7 @@ function subscribeToExecutionLogs(onMessage) {
         });
 
         redisSub.on('pmessage', (_pattern, channel, message) => {
-            // channel looks like execution_logs_<roomId>
+            // channel: execution_logs_<roomId>
             const roomId = channel.startsWith(LOG_CHANNEL_PREFIX) ? channel.slice(LOG_CHANNEL_PREFIX.length) : null;
             let payload = message;
             try { payload = JSON.parse(message); } catch { /* keep raw */ }
@@ -140,10 +135,7 @@ function subscribeToExecutionLogs(onMessage) {
     });
 }
 
-/**
- * pushJob(job)
- * Redis-only: gateway is a realtime router. Execution happens in worker.
- */
+// Enqueue an execution job for the worker.
 function pushJob(job) {
     return (async () => {
         const ok = await ensureRedisConnected();
@@ -153,13 +145,12 @@ function pushJob(job) {
     })();
 }
 
-// Convenience: forward Redis execution logs to websocket rooms.
-// Call once during gateway startup.
+// Forward Redis execution logs to websocket rooms (call once on startup).
 function forwardRedisLogsToRooms() {
     subscribeToExecutionLogs(({ roomId, payload }) => {
         if (!roomId) return;
 
-        // Persist execution lifecycle + output (best effort).
+        // Persist execution lifecycle + output.
         persistExecutionEvent(payload).catch(() => { });
 
         // Drive gateway execution state machine off worker events.
@@ -172,7 +163,7 @@ function forwardRedisLogsToRooms() {
         const roomSet = rooms.getRoom(roomId);
         if (!roomSet) return;
 
-        // Worker publishes EXECUTION_* payloads; forward them verbatim.
+        // Forward payload verbatim.
         if (payload && typeof payload === 'object') {
             broadcast(roomSet, payload);
         }

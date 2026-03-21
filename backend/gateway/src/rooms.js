@@ -2,20 +2,10 @@ const prisma = require('./prisma');
 const os = require('os');
 const { sub, pub } = require('./realtime/collabBus');
 
-// Runtime cache per projectId:
-// {
-//    code: string,
-//    users: Set<WebSocket>,
-//    saveTimer: NodeJS.Timeout | null,
-//    lastTs: number,
-//    evictionTimer: NodeJS.Timeout | null,
-//    lastActivityAt: number,
-//    subscribed: boolean
-// }
+// Runtime cache: projectId -> { code, users, timers, ts, subscribed }.
 const projectRuntime = new Map();
 
-// Approximate cross-gateway presence per project.
-// This is eventually-consistent and designed for user-count UX (not strict correctness).
+// Approximate cross-gateway presence (UX only).
 const projectPresence = new Map();
 
 const EVICT_AFTER_MS = Number(process.env.RUNTIME_EVICT_AFTER_MS || 2 * 60 * 1000);
@@ -89,13 +79,13 @@ async function joinRoom(ws, projectId) {
         projectRuntime.set(projectId, runtime);
     }
 
-    // cancel pending eviction if any
+    // Cancel pending eviction.
     if (runtime.evictionTimer) {
         clearTimeout(runtime.evictionTimer);
         runtime.evictionTimer = null;
     }
 
-    // subscribe to this project's channel once we're actually serving it
+    // Subscribe to project channel.
     await ensureSubscribed(projectId);
 
     runtime.users.add(ws);
@@ -104,7 +94,7 @@ async function joinRoom(ws, projectId) {
 
     projectPresence.set(projectId, (projectPresence.get(projectId) || 0) + 1);
 
-    // Compatibility/UI ack: lets client switch screens and show user count.
+    // UI ack.
     ws.send(JSON.stringify({
         type: 'ROOM_JOINED',
         roomId: projectId,
@@ -112,13 +102,13 @@ async function joinRoom(ws, projectId) {
         code: runtime.code
     }));
 
-    // Let client hydrate editor
+    // Hydrate editor.
     ws.send(JSON.stringify({
         type: 'INITIAL_CODE',
         code: runtime.code
     }));
 
-    // Notify others in memory
+    // Notify others.
     const users = runtime.users.size;
     runtime.users.forEach((client) => {
         if (client !== ws) client.send(JSON.stringify({ type: 'USER_JOINED', users }));
@@ -146,7 +136,7 @@ function leaveRoom(ws) {
     });
 
     if (users === 0) {
-        // start idle eviction timer so projects don't live forever
+        // Start idle eviction.
         if (runtime.evictionTimer) clearTimeout(runtime.evictionTimer);
         runtime.evictionTimer = setTimeout(async () => {
             const r = projectRuntime.get(projectId);
@@ -160,8 +150,7 @@ function leaveRoom(ws) {
             projectRuntime.delete(projectId);
         }, EVICT_AFTER_MS);
 
-        // unsubscribe early to avoid the gateway processing events for projects it isn't serving.
-        // We'll resubscribe on next join.
+        // Unsubscribe early; resubscribe on next join.
         maybeUnsubscribe(projectId);
     }
 }
@@ -173,14 +162,14 @@ function updateCode(sourceWs, projectId, newCode) {
     runtime.lastTs = Date.now();
     runtime.lastActivityAt = Date.now();
 
-    // broadcast to others (realtime stays memory-driven)
+    // Broadcast to others.
     runtime.users.forEach((client) => {
         if (client !== sourceWs) {
             client.send(JSON.stringify({ type: 'CODE_UPDATE', code: newCode }));
         }
     });
 
-    // debounce DB write
+    // Debounced DB write.
     if (runtime.saveTimer) clearTimeout(runtime.saveTimer);
     runtime.saveTimer = setTimeout(async () => {
         try {

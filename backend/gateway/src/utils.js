@@ -11,11 +11,6 @@ function broadcast(roomSet, payload) {
     });
 }
 
-function logger(...args) {
-    console.log(...args);
-}
-
 module.exports = {
-    broadcast,
-    logger
+    broadcast
 };

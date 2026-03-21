@@ -4,12 +4,10 @@ const roomsModule = require('./rooms');
 const prisma = require('./prisma');
 const { v4: uuid } = require('uuid');
 
-// Inject state updater into queue to avoid circular dependency (queue -> execution).
+// Inject updater into queue (avoid circular deps).
 queue.setExecutionStateUpdater(updateExecutionStateFromWorker);
 
-// Execution state machine (gateway-side)
-// States: IDLE -> QUEUED -> RUNNING -> FINISHED/ERROR -> IDLE
-// The worker publishes EXECUTION_* events via Redis; gateway updates state based on those.
+// Gateway-side execution state.
 const STATES = {
     IDLE: 'IDLE',
     QUEUED: 'QUEUED',
@@ -33,10 +31,7 @@ function setExecutionState(roomId, next) {
     roomExecution.set(roomId, { ...next, updatedAt: Date.now() });
 }
 
-/**
- * updateExecutionStateFromWorker(roomId, payload)
- * Called when worker log events arrive via Redis.
- */
+// Called when worker log events arrive via Redis.
 function updateExecutionStateFromWorker(roomId, payload) {
     if (!roomId || !payload || typeof payload !== 'object') return;
     const type = payload.type;
@@ -49,7 +44,6 @@ function updateExecutionStateFromWorker(roomId, payload) {
     }
 
     if (type === 'EXECUTION_FINISHED') {
-        // Mark terminal state briefly, then reset to IDLE.
         setExecutionState(roomId, { state: STATES.FINISHED, jobId: current.jobId || payload.jobId });
         setExecutionState(roomId, { state: STATES.IDLE });
         return;
@@ -66,14 +60,13 @@ async function startExecution(roomId) {
     const room = roomsModule.getRoom(roomId);
     if (!room) return;
 
-    // prevent concurrent runs (queued/running)
+    // Prevent concurrent runs.
     const current = getExecutionState(roomId);
     if (current.state === STATES.QUEUED || current.state === STATES.RUNNING) return;
 
     const latestCode = roomsModule.getCode(roomId) || '';
 
-    // Create an Execution row for tracking / history.
-    // executionId becomes the global identifier for this run.
+    // Create an Execution row for tracking.
     let executionRow;
     try {
         executionRow = await prisma.execution.create({
@@ -99,7 +92,7 @@ async function startExecution(roomId) {
         createdAt: Date.now()
     };
 
-    // mark queued before enqueue (prevents rapid double click)
+    // Mark queued before enqueue.
     const execState = { state: STATES.QUEUED, jobId: job.jobId };
     setExecutionState(roomId, execState);
 
@@ -108,7 +101,6 @@ async function startExecution(roomId) {
     try {
         await queue.pushJob(job);
     } catch (err) {
-        // If enqueue fails, clear state so the user can retry.
         setExecutionState(roomId, { state: STATES.IDLE });
         // Best-effort persist failure.
         try {

@@ -4,12 +4,9 @@ const { pub } = require('./realtime/collabBus');
 
 function setupWebSocket(wss) {
     wss.on('connection', (socket) => {
-        console.log('WebSocket connection established');
-
         socket.on('close', () => {
             // delegate leave handling
             rooms.leaveRoom(socket);
-            console.log('WebSocket disconnected');
         });
 
         socket.on('message', async (message) => {

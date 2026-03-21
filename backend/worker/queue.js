@@ -1,6 +1,6 @@
 const Redis = require('ioredis');
 
-// Default queue/channel naming (can be overridden via env)
+// Default queue/channel naming (env override).
 const EXECUTION_JOBS_LIST = process.env.EXECUTION_JOBS_LIST || 'execution_jobs';
 const LOG_CHANNEL_PREFIX = process.env.EXECUTION_LOGS_PREFIX || 'execution_logs_';
 
@@ -11,10 +11,7 @@ function getRedisUrl() {
     return process.env.REDIS_URL || process.env.REDIS_CONNECTION_STRING || 'redis://127.0.0.1:6379';
 }
 
-/**
- * Connect (idempotent) and return Redis clients.
- * We use a dedicated connection for blocking operations (BLPOP) and one for publishing.
- */
+// Connect (idempotent). Uses one client for BLPOP and one for publish.
 function connectRedis() {
     if (redis && redisPub) return { redis, redisPub };
 
@@ -27,22 +24,14 @@ function connectRedis() {
         lazyConnect: true
     });
 
-    const onError = (err) => {
-        // Keep worker alive; caller can decide whether to exit.
-        console.error('[worker][redis] error:', err?.message || err);
-    };
+    const onError = (err) => console.error('[worker][redis] error:', err?.message || err);
     redis.on('error', onError);
     redisPub.on('error', onError);
 
     return { redis, redisPub };
 }
 
-/**
- * waitForJob()
- * Blocking pop of a job from the execution list.
- * Uses: BLPOP <list> 0
- * Returns: parsed JSON object
- */
+// Blocking pop of a job from the execution list.
 async function waitForJob() {
     const { redis } = connectRedis();
     if (redis.status === 'wait' || redis.status === 'end') {
@@ -57,16 +46,10 @@ async function waitForJob() {
 
     try {
         return JSON.parse(value);
-    } catch {
-        // If job isn't JSON, return raw payload.
-        return { raw: value };
-    }
+    } catch { return { raw: value }; }
 }
 
-/**
- * publishLog(roomId, payload)
- * Publishes a log payload to channel execution_logs_<roomId>.
- */
+// Publish a payload to execution_logs_<roomId>.
 async function publishLog(roomId, payload) {
     const { redisPub } = connectRedis();
     if (redisPub.status !== 'ready') await redisPub.connect();

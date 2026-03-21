@@ -168,7 +168,7 @@ body {
     }
 }
 
-/* Join screen */
+/* Join */
 .join-screen {
     position: fixed;
     inset: 0;
@@ -338,7 +338,7 @@ body {
     text-align: center;
 }
 
-/* Main grid: sidebar / editor / compiler */
+/* Layout */
 .hidden {
     display: none
 }
@@ -478,7 +478,7 @@ body {
     color: rgba(248, 113, 113, 0.95);
 }
 
-/* Keep the Run button visible even when output is long */
+/* Sticky run */
 #runBtn {
     position: sticky;
     bottom: 0;

@@ -13,9 +13,9 @@ const EXECUTION_IMAGE = process.env.EXECUTION_IMAGE || 'execution-image:latest';
 const DOCKER_BIN = process.env.DOCKER_BIN || 'docker';
 const DEFAULT_MEMORY = process.env.EXECUTION_MEMORY || '128m';
 const DEFAULT_CPUS = process.env.EXECUTION_CPUS || '0.5';
+const WORKER_DEBUG = String(process.env.WORKER_DEBUG || '').toLowerCase() === 'true';
 
-// A tiny pool of reusable staging containers. This avoids paying `docker create` for every job,
-// which is noticeably slow on Docker Desktop / WSL2.
+// Small pool of reusable staging containers (faster on Docker Desktop/WSL2).
 const STAGER_POOL_SIZE = Number(process.env.STAGER_POOL_SIZE || 2);
 const STAGER_PREFIX = 'stager_exec_';
 let stagerInitPromise = null;
@@ -110,11 +110,7 @@ function rimrafSafe(p) {
     }
 }
 
-/**
- * runJob(job)
- * job: { roomId, code }
- * Streams stdout/stderr as EXECUTION_OUTPUT and publishes EXECUTION_FINISHED / EXECUTION_ERROR.
- */
+// Runs a queued job and streams EXECUTION_* events.
 async function runJob(job) {
     const roomId = job?.roomId;
     if (!roomId) throw new Error('Job missing roomId');
@@ -124,16 +120,16 @@ async function runJob(job) {
     const jobDir = makeJobDir(executionId);
     const filePath = writeJobFiles(jobDir, job.code);
 
-    // We avoid bind mounts entirely because they are unreliable with Docker Desktop
-    // when controlling the host daemon from inside a container (dind / docker-outside-of-docker).
-    // Instead, we copy the file into an isolated container via `docker cp`.
-    await publishLog(roomId, {
-        type: 'WORKER_DEBUG',
-        executionId,
-        msg: 'prepared job files',
-        jobDir,
-        filePath
-    });
+    // No bind mounts here; stage code via docker cp.
+    if (WORKER_DEBUG) {
+        await publishLog(roomId, {
+            type: 'WORKER_DEBUG',
+            executionId,
+            msg: 'prepared job files',
+            jobDir,
+            filePath
+        });
+    }
 
     // Preflight: ensure the file exists before we start docker.
     if (!fs.existsSync(filePath)) {
@@ -148,12 +144,10 @@ async function runJob(job) {
     // Container name so we can force-kill on timeout.
     const containerName = `exec_${String(executionId || randomUUID()).replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
     const stagedImage = `${EXECUTION_IMAGE}-staged-${String(executionId || randomUUID()).replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
-    // Commit-based flow (known to work on Docker Desktop):
-    // stage code into a non-readonly container, commit to a temp image,
-    // then run that image with runtime hardening + read-only.
+    // Stage -> commit -> hardened run (reliable on Docker Desktop).
     const execPathInContainer = '/sandbox/main.py';
 
-    // 1) Checkout a reusable staging container (WITHOUT --read-only) so docker cp can write.
+    // 1) Checkout staging container (not read-only).
     let stagerName;
     try {
         stagerName = await checkoutStager();
@@ -163,7 +157,7 @@ async function runJob(job) {
         return;
     }
 
-    // 2) Copy code into staging container
+    // 2) Copy code into stager
     try {
         await execDocker(['cp', filePath, `${stagerName}:${execPathInContainer}`]);
     } catch (e) {
@@ -174,7 +168,7 @@ async function runJob(job) {
         return;
     }
 
-    // 3) Commit staging container to an ephemeral image (now code is baked into the image)
+    // 3) Commit stager to a temp image
     try {
         await execDocker(['commit', stagerName, stagedImage]);
     } catch (e) {
@@ -187,7 +181,7 @@ async function runJob(job) {
         refreshAndReturnStager(stagerName).catch(() => { });
     }
 
-    // 4) Run the committed image with full hardening and stream logs
+    // 4) Run hardened container and stream logs
     const runName = `${containerName}_run`;
     const dockerArgs = [
         'run',

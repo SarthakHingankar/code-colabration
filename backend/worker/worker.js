@@ -1,5 +1,4 @@
-// Redis-backed worker loop.
-// Blocks on the execution queue, executes code, and publishes logs to per-room channels.
+// Worker loop: wait for jobs, run them, publish logs.
 
 const { connectRedis, waitForJob, publishLog } = require('./queue');
 const { runJob } = require('./runner');
@@ -27,7 +26,7 @@ function execDocker(args) {
 }
 
 async function warmupExecutionImage() {
-    // Best-effort warmup: ensures the image is present so the first run doesn't pay pull/load costs.
+    // Best-effort warmup: ensure image exists.
     try {
         await execDocker(['image', 'inspect', EXECUTION_IMAGE]);
         console.log(`[worker] warmup: execution image present (${EXECUTION_IMAGE})`);
@@ -37,7 +36,6 @@ async function warmupExecutionImage() {
             await execDocker(['pull', EXECUTION_IMAGE]);
             console.log('[worker] warmup: pull complete');
         } catch (e) {
-            // Don't fail startup if pull isn't possible (e.g., image built locally by compose).
             console.warn('[worker] warmup: unable to pull image (continuing):', e.message);
         }
     }
@@ -46,7 +44,7 @@ async function warmupExecutionImage() {
 async function main() {
     console.log('[worker] starting...');
 
-    // Connect once up-front so we fail fast if Redis isn't reachable.
+    // Connect up-front.
     const { redis, redisPub } = connectRedis();
     await Promise.all([redis.connect(), redisPub.connect()]);
 
@@ -57,13 +55,12 @@ async function main() {
         const job = await waitForJob();
         if (!job) continue;
 
-        // Sequential execution only: we await the runner before waiting for the next job.
+        // Sequential execution.
         const roomId = job.roomId;
         try {
             await publishLog(roomId, { type: 'WORKER_JOB_RECEIVED', roomId, ts: Date.now() });
             await runJob(job);
         } catch (err) {
-            // Best-effort error publish.
             try {
                 await publishLog(roomId || 'unknown', { type: 'EXECUTION_ERROR', message: err?.message || String(err) });
             } catch (e) {

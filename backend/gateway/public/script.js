@@ -1,6 +1,6 @@
-// Client-side socket will be created when user joins a room
+// WebSocket is created on join.
 let socket = null;
-// Flag to prevent echoing remote updates back to server
+// Prevent echo of remote updates.
 let isRemoteUpdate = false;
 let executionRunning = false;
 
@@ -9,7 +9,7 @@ function createWebSocket() {
     return new WebSocket(protocol + '//' + location.host);
 }
 
-// UI helpers and editor logic
+// UI + editor logic.
 (function () {
     const joinScreen = document.getElementById('joinScreen');
     const joinBtn = document.getElementById('joinBtn');
@@ -86,12 +86,12 @@ function createWebSocket() {
         if (type === 'system') div.classList.add('msg-system');
         messagesList.appendChild(div);
         messagesList.scrollTop = messagesList.scrollHeight;
-        // mark messages tab as having unread messages unless it's already active
+        // Mark messages tab unread.
         const msgTab = document.querySelector('.tabs .tab[data-tab="messages"]');
         if (msgTab && !msgTab.classList.contains('active')) msgTab.classList.add('has-unread');
     }
 
-    // editor buttons
+    // Editor buttons
     newBtn.addEventListener('click', () => {
         if (editor.value && !confirm('Discard current contents and create new file?')) return;
         editor.value = '';
@@ -137,7 +137,7 @@ function createWebSocket() {
 
     editor.addEventListener('input', () => {
         updateCounts();
-        // Broadcast edits to room unless this update originated remotely
+        // Broadcast local edits.
         if (!isRemoteUpdate && socket && socket.readyState === WebSocket.OPEN && currentRoomId) {
             try {
                 socket.send(JSON.stringify({
@@ -161,7 +161,7 @@ function createWebSocket() {
         }
     });
 
-    // keyboard shortcuts
+    // Keyboard shortcuts
     window.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
             e.preventDefault();
@@ -173,7 +173,7 @@ function createWebSocket() {
         }
     });
 
-    // tabs
+    // Tabs
     document.querySelectorAll('.tabs .tab').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.tabs .tab').forEach(b => b.classList.remove('active'));
@@ -183,7 +183,7 @@ function createWebSocket() {
             if (t === 'info') document.getElementById('infoTab').classList.remove('hidden');
             if (t === 'messages') {
                 document.getElementById('messagesTab').classList.remove('hidden');
-                // clear unread badge when user views messages
+                // Clear unread badge.
                 btn.classList.remove('has-unread');
             }
         });
@@ -199,20 +199,18 @@ function createWebSocket() {
         joinStatus.textContent = 'Connecting...';
         setConnBadge('');
 
-        // Set early so INITIAL_CODE path can still label the room.
+        // Set early for INITIAL_CODE.
         currentRoomId = roomId;
 
         socket = createWebSocket();
 
         socket.onopen = () => {
-            console.log('Connected to server');
             setConnBadge('ok');
-            // Send join message
+            // Send join.
             socket.send(JSON.stringify({ type: 'JOIN_ROOM', roomId }));
         };
 
         socket.onclose = () => {
-            console.log('Disconnected from server');
             setConnBadge('bad');
             addMessage('Disconnected from server', 'system');
         };
@@ -223,11 +221,10 @@ function createWebSocket() {
             joinStatus.textContent = 'Socket error';
         };
 
-        // per-run output state
+        // Per-run output state
         let execPreElement = null;
 
-        // Output backpressure/cap to prevent infinite output from freezing the tab.
-        // Keep only the last MAX_OUTPUT_CHARS characters and throttle DOM writes.
+        // Output cap + throttled DOM writes.
         const MAX_OUTPUT_CHARS = 50_000;
         const FLUSH_INTERVAL_MS = 75;
 
@@ -247,7 +244,6 @@ function createWebSocket() {
 
         function trimBuffer(buf) {
             if (buf.length <= MAX_OUTPUT_CHARS) return buf;
-            // Keep tail
             const trimmed = buf.slice(buf.length - MAX_OUTPUT_CHARS);
             return trimmed;
         }
@@ -275,18 +271,17 @@ function createWebSocket() {
                 const data = JSON.parse(event.data);
 
                 if (data.type === 'ROOM_JOINED') {
-                    console.log('Joined room', data.roomId);
                     currentRoomId = data.roomId || roomId;
                     roomIdLabel.textContent = currentRoomId;
                     updateUserCount(data.users);
-                    // switch UI
+                    // Switch UI
                     joinScreen.classList.add('hidden');
                     app.classList.remove('hidden');
                     joinStatus.textContent = 'Joined';
-                    // show system message in messages tab
+                    // System message
                     addMessage(`Joined room ${data.roomId}`, 'system');
                     if (data.users) addMessage(`Users in room: ${Array.isArray(data.users) ? data.users.length : data.users}`, 'system');
-                    // If server provided the current code for the room, populate editor without echo
+                    // Populate editor (no echo).
                     if (typeof data.code === 'string') {
                         isRemoteUpdate = true;
                         editor.value = data.code;
@@ -296,12 +291,11 @@ function createWebSocket() {
                     }
                 }
 
-                // New DB-backed join flow: server sends INITIAL_CODE after JOIN_ROOM.
-                // Keep the same UI transitions as ROOM_JOINED for compatibility.
+                // INITIAL_CODE join flow.
                 if (data.type === 'INITIAL_CODE') {
                     currentRoomId = currentRoomId || roomId;
                     roomIdLabel.textContent = currentRoomId;
-                    // switch UI
+                    // Switch UI
                     joinScreen.classList.add('hidden');
                     app.classList.remove('hidden');
                     joinStatus.textContent = 'Joined';
@@ -336,7 +330,7 @@ function createWebSocket() {
                 }
 
                 if (data.type === 'CODE_UPDATE') {
-                    // apply remote code update without echoing back
+                    // Apply remote update (no echo).
                     isRemoteUpdate = true;
                     editor.value = data.code || '';
                     updateCounts();
@@ -344,23 +338,21 @@ function createWebSocket() {
                 }
 
                 if (data.type === 'MESSAGE') {
-                    // if server sends chat messages with user info
                     if (data.user) addMessage(`${data.user}: ${data.text || JSON.stringify(data)}`);
                     else addMessage(data.text || JSON.stringify(data));
                 }
                 if (data.type === 'EXECUTION_STARTED') {
                     executionRunning = true;
                     if (runBtn) runBtn.disabled = true;
-                    console.log('Execution started');
                     addMessage('Execution started');
                     setStatus('Running…');
 
-                    // start a fresh output session
+                    // Fresh output session
                     const outEl = document.getElementById('compilerOutput');
                     if (outEl) outEl.textContent = '';
                     execPreElement = null;
 
-                    // reset output buffers/timers for this run
+                    // Reset buffers/timers
                     pendingOutput = '';
                     outputBuffer = '';
                     if (flushTimer) {
@@ -371,15 +363,12 @@ function createWebSocket() {
                 }
 
                 if (data.type === 'EXECUTION_OUTPUT') {
-                    // accept multiple possible payload fields for streaming text
                     const text = (data.line ?? data.output ?? data.text ?? data.chunk) || '';
 
-                    // Backpressured streaming: buffer then flush at a throttled cadence.
-                    // Also cap growth so infinite output can't crash the page.
+                    // Buffer then flush (throttled).
                     const chunk = text + (text.endsWith('\n') ? '' : '\n');
                     pendingOutput += chunk;
 
-                    // Small optimization: if output panel doesn't exist, don't buffer forever.
                     const outEl = document.getElementById('compilerOutput');
                     if (!outEl) {
                         addMessage(text);
@@ -387,10 +376,8 @@ function createWebSocket() {
                         return;
                     }
 
-                    // If stderr is present, mark the whole run as having stderr output.
                     if (data.stream === 'stderr' && execPreElement) execPreElement.classList.add('stderr');
 
-                    // If pending output is already huge, flush immediately to keep memory stable.
                     if (pendingOutput.length > 16_000) {
                         flushOutputToDom();
                     } else {
@@ -414,7 +401,6 @@ function createWebSocket() {
                     setStatus('Error');
                 }
                 if (data.type === 'EXECUTION_ALREADY_RUNNING') {
-                    // Keep UI in running state; just inform the user.
                     executionRunning = true;
                     if (runBtn) runBtn.disabled = true;
                     addMessage('Execution already in progress', 'system');
@@ -426,12 +412,10 @@ function createWebSocket() {
         };
     }
 
-    // Join flow
     joinBtn.addEventListener('click', () => {
         joinRoomById(roomInput.value);
     });
 
-    // Create room flow
     createProjectBtn && createProjectBtn.addEventListener('click', async () => {
         if (createProjectBtn.disabled) return;
 
@@ -490,9 +474,8 @@ function createWebSocket() {
         }
     });
 
-    // initialize counts
+    // Init
     updateCounts();
-    // focus room input initially
     roomInput.focus();
 
 })();

@@ -17,8 +17,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static(frontendPath));
 
-// ---- REST API ----
-// Create a new project (the returned id is used as roomId/projectId)
+// REST: create a new project (roomId)
 app.post('/projects', async (req, res) => {
     try {
         const { name } = req.body || {};
@@ -49,15 +48,12 @@ const wss = new WebSocket.Server({ server });
 
 socketLayer.setupWebSocket(wss);
 
-// If Redis is configured, subscribe once and forward worker execution logs to websocket rooms.
+// Forward worker execution logs to websocket rooms.
 queue.forwardRedisLogsToRooms();
 
-// ---- Cross-gateway collaboration bus ----
-// When code is updated on another gateway, replicate into our runtime cache and broadcast
-// to our locally-connected users.
+// Cross-gateway collab bus: replicate remote updates to local users.
 if (sub) {
-    // Use a single pattern subscription so we don't need to attach new handlers per project.
-    // We still only *apply* updates for projects we currently serve (have runtime).
+    // One pattern subscription; apply only for locally-served projects.
     sub.psubscribe('collab_*').catch(() => { });
 
     sub.on('pmessage', async (_pattern, channel, message) => {
@@ -74,12 +70,11 @@ if (sub) {
         const projectId = event.projectId;
         if (!projectId) return;
 
-        // sanity: ensure message arrived on the expected channel for this project
+        // Ensure message arrived on the expected channel.
         const expectedChannel = rooms.getCollabChannel(projectId);
         if (channel !== expectedChannel) return;
 
-        // Only keep a runtime around if we're actively serving this project.
-        // If no runtime exists locally, ignore (other gateways will serve their users).
+        // Ignore if we aren't serving this project.
         let runtime = rooms.projectRuntime.get(projectId);
         if (!runtime) return;
 
@@ -113,9 +108,10 @@ if (sub) {
     });
 }
 
-// ---- Stage-2.5 hygiene: periodic cleanup + memory stats ----
+// Periodic runtime cleanup.
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const EVICT_AFTER_MS = Number(process.env.RUNTIME_EVICT_AFTER_MS || 2 * 60 * 1000);
+const CLEANUP_LOGS = String(process.env.CLEANUP_LOGS || '').toLowerCase() === 'true';
 setInterval(() => {
     const now = Date.now();
     let evicted = 0;
@@ -125,7 +121,7 @@ setInterval(() => {
         if (runtime.users && runtime.users.size > 0) continue;
         const last = Number(runtime.lastActivityAt || 0);
         if (last && now - last >= EVICT_AFTER_MS) {
-            // If there's a pending eviction timer, it should handle it, but this is a safety net.
+            // Safety net: clear pending timers.
             if (runtime.saveTimer) clearTimeout(runtime.saveTimer);
             if (runtime.evictionTimer) clearTimeout(runtime.evictionTimer);
             rooms.maybeUnsubscribe(projectId);
@@ -136,10 +132,11 @@ setInterval(() => {
     }
 
     const m = process.memoryUsage();
-    // Keep logs short; this is mainly to simulate production observability.
-    console.log(
-        `[cleanup] runtimes=${rooms.projectRuntime.size} evicted=${evicted} heapUsedMB=${(m.heapUsed / 1024 / 1024).toFixed(1)} rssMB=${(m.rss / 1024 / 1024).toFixed(1)}`
-    );
+    if (CLEANUP_LOGS) {
+        console.log(
+            `[cleanup] runtimes=${rooms.projectRuntime.size} evicted=${evicted} heapUsedMB=${(m.heapUsed / 1024 / 1024).toFixed(1)} rssMB=${(m.rss / 1024 / 1024).toFixed(1)}`
+        );
+    }
 }, CLEANUP_INTERVAL_MS).unref?.();
 
 server.on('error', (err) => {
